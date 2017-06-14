@@ -15,7 +15,10 @@ Created on Tue Jun  6 17:52:34 2017
 
 import numpy as np
 np.random.seed(123) # for reproducibility
+np.set_printoptions(precision=4)
 from matplotlib import pyplot as plt
+
+from copy import deepcopy
 
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Activation, Flatten # core layers
@@ -71,19 +74,35 @@ class TestMaker:
                            metrics   = self.config['compilation']['metrics'])
         self.training = training
         self.evaluating = evaluating
-        self.config = config
+        self.config = deepcopy(config)
+        # for the sake of simplicity later:
+        self.config["compilation"]["metrics"] = ['loss'] + self.config["compilation"]["metrics"]
         
     def run(self):
         """Run the test, and returns info"""
-        nb = self.config['training']['nb_samples']
-        trainingHistory = self.model.fit(self.training['x'][0:nb], self.training['y'][0:nb],
+        nb_samples = self.config['training']['nb_samples']
+        # we want to record training history, and also evaluating history for each epoch
+        # so we process epoch by epoch
+        metrics = self.config["compilation"]["metrics"]
+        trainingHistory = {metric: [] for metric in self.config["compilation"]["metrics"]}
+        evaluatingHistory = {metric: [] for metric in self.config["compilation"]["metrics"]}
+        for epoch in range(self.config["training"]["epochs"]):
+            print("Epoch " + str(epoch+1) + "/" + str(self.config["training"]["epochs"]))
+            trainMetrics = self.model.fit(self.training['x'][0:nb_samples], self.training['y'][0:nb_samples],
                                     batch_size = self.config['training']['batch_size'], 
-                                    epochs     = self.config['training']['epochs'], 
-                                    verbose    = 1)
-        evaluatingScore = self.model.evaluate(self.evaluating['x'], self.evaluating['y'],
-                                              verbose = 1)
+                                    epochs     = 1, 
+                                    verbose    = 0)
+            evalMetrics = self.model.evaluate(self.evaluating['x'], self.evaluating['y'],
+                                              verbose = 0)
+            # add this epoch metrics to history
+            for metric in range(len(metrics)):
+                # training
+                trainingHistory[metrics[metric]].append(trainMetrics.history[metrics[metric]][0])
+                # evaluating
+                evaluatingHistory[metrics[metric]].append(evalMetrics[metric])
+                
         return {'trainingHistory':trainingHistory,
-                'evaluatingScore':evaluatingScore}
+                'evaluatingHistory':evaluatingHistory}
   
 class VaryingDicField:
     """Store a path in a recursive dictionnary, and a range of value to take"""
@@ -94,7 +113,7 @@ class VaryingDicField:
     def __str__(self):
         return ".".join([str(i) for i in self.path]) + ' = ' + str(self.values)
     
-    def _repr__(self):
+    def __repr__(self):
         return "VaryingDicField(" + ".".join([str(i) for i in self.path]) + ', ' + str(self.values) + ")"
     
     def __eq__(self, other):
@@ -130,15 +149,16 @@ class TestsMaker:
     
     def plotResult(self, result):
         plt.figure()
-        for metric in result[1]["trainingHistory"].history:
-            Y = result[1]["trainingHistory"].history[metric]
-            plt.plot(Y, 'x-', label = metric)
-        plt.xlabel("Iterations")
+        for metric in result[1]["trainingHistory"]:
+            Y_train = result[1]["trainingHistory"][metric]
+            Y_eval = result[1]["evaluatingHistory"][metric]
+            plt.plot(Y_train, 'x-', label = (metric + " train"))
+            plt.plot(Y_eval, 'x-', label = (metric + " eval"))
+        plt.xlabel("epochs")
         configToShow =  " ".join([str(param) for param in result[0]])
         configToShow += '\nEVALUATION SCORE:'
-        configToShow += ' Loss: ' + str(result[1]['evaluatingScore'][0])
-        for i in range(len(self.config["compilation"]["metrics"])):
-            configToShow += ' ' + self.config["compilation"]["metrics"][i] + ': ' + str(result[1]['evaluatingScore'][i+1])
+        for metric in result[1]["evaluatingHistory"]:
+            configToShow += ' ' + metric + ': ' + str(result[1]['evaluatingHistory'][metric][-1])
         plt.title(configToShow, wrap=True)
         plt.legend()
         plt.grid(True)
@@ -209,12 +229,16 @@ class TestsMaker:
                 # get value of x_param in result
                 for param in result[0]:
                     if x_param == param.path:
-                        goodResults.append((param.values, result[1]['evaluatingScore']))
+                        goodResults.append((param.values, [result[1]['evaluatingHistory'][metric][-1] for metric in result[1]['evaluatingHistory']]))
                         break
 #        print(goodResults)
         # finally we can plot the data
         plt.figure()
-        X = [d[0] for d in goodResults]
+        if len(goodResults) != 0 and type(goodResults[0][0]) == str:
+            X = range(len(goodResults))
+            plt.xticks(X, [result[0] for result in goodResults])
+        else:
+            X = [d[0] for d in goodResults]
         Y = [d[1][0] for d in goodResults]
         plt.plot(X, Y, "x-", label="Loss")
         for i in range(len(self.config['compilation']['metrics'])):
@@ -292,18 +316,16 @@ config = {
             'compilation': {
                 'loss' : 'categorical_crossentropy',
                 'optimizer' : 'adam',
-                'metrics' : ['accuracy']
+                'metrics' : ['acc']
             },
             'training': {
-                'epochs' : 10,
+                'epochs' : 30,
                 'batch_size' : 32,
                 'nb_samples' : 500
             }
          }
            
-tests = TestsMaker(config, [VaryingDicField(['training', 'nb_samples'], [500,5000]),
-                            VaryingDicField(['sequential', 0, 'kernel_size'], [(2,2),(5,5),(10,10)]),
-                            VaryingDicField(['sequential', 0, 'filters'], [5,15,32])],
+tests = TestsMaker(config, [VaryingDicField(['compilation', 'optimizer'], ['adam', 'sgd'])],
                    {'x':X_train, 'y':Y_train},
                    {'x':X_test, 'y':Y_test})
 
@@ -314,7 +336,7 @@ tests.run()
 #tests.plot2DEvaluationMetrics(['training', 'nb_samples'], [])
 #tests.plot2DEvaluationMetrics(['sequential', 0, 'filters'], [])
 #tests.plotResult(tests.results[0])
-tests.plot2DEvaluationMetrics(['sequential', 0, 'kernel_size'], [])
+tests.plot2DEvaluationMetrics(['compilation', 'optimizer'], [])
 tests.plotMinMidMaxResults()
 
 #testResult = test.run()
