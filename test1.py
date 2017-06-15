@@ -9,8 +9,8 @@ Created on Tue Jun  6 17:52:34 2017
 ################################################################## IMPORT
 
 
-#import os    
-#os.environ['THEANO_FLAGS'] = "device=cuda,floatX=float32" 
+import os    
+os.environ['THEANO_FLAGS'] = "device=cuda,floatX=float32" 
 #import theano
 
 import numpy as np
@@ -91,9 +91,9 @@ class TestMaker:
             trainMetrics = self.model.fit(self.training['x'][0:nb_samples], self.training['y'][0:nb_samples],
                                     batch_size = self.config['training']['batch_size'], 
                                     epochs     = 1, 
-                                    verbose    = 0)
+                                    verbose    = 1)
             evalMetrics = self.model.evaluate(self.evaluating['x'], self.evaluating['y'],
-                                              verbose = 0)
+                                              verbose = 1)
             # add this epoch metrics to history
             for metric in range(len(metrics)):
                 # training
@@ -321,7 +321,7 @@ config = {
             'training': {
                 'epochs' : 30,
                 'batch_size' : 32,
-                'nb_samples' : 500
+                'nb_samples' : 50000
             }
          }
            
